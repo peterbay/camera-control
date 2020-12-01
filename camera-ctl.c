@@ -300,7 +300,8 @@ static void control_free()
         if (ctrl_mapping[i].hasoptions) {
             for (idx = 0; idx < ctrl_mapping[i].maximum - ctrl_mapping[i].minimum; idx++) {
                 if (ctrl_mapping[i].options[idx].name) {
-                    free(ctrl_mapping[i].options[idx].name);
+                    /* this must be fixed - double free or corruption (out) */
+                    // free(ctrl_mapping[i].options[idx].name);
                     ctrl_mapping[i].options[idx].name = NULL;
                 }
             }

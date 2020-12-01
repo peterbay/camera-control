@@ -1,11 +1,12 @@
 
-PKGS    := ncursesw
-CC      := gcc
-CFLAGS  := -Wall -O2 -std=c99 $(shell pkg-config --cflags $(PKGS))
-LDFLAGS := $(shell pkg-config --libs $(PKGS))
-AS      := as
-ASFLAGS := -gdbb --32
-PROGS   := camera-ctl
+PKGS       := ncursesw
+CC         := gcc
+PKG_CONFIG ?= pkg-config
+CFLAGS     := -Wall -O2 -std=c99 $(shell $(PKG_CONFIG) --cflags $(PKGS))
+LDFLAGS    := $(shell $(PKG_CONFIG) --libs $(PKGS))
+AS         := as
+ASFLAGS    := -gdbb --32
+PROGS      := camera-ctl
 
 .PHONY: all clean
 
