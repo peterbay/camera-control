@@ -53,6 +53,7 @@ enum control_actions {
 };
 
 struct control_option {
+    int index;
     int value;
     char * name;
 } control_option;
@@ -163,6 +164,7 @@ static void v4l2_get_controls()
     unsigned int id;
     unsigned int options_count;
     unsigned int option_nr;
+    int menu_index;
     const unsigned next_fl = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
     memset(&queryctrl, 0, sizeof(queryctrl));
     memset(&querymenu, 0, sizeof (querymenu));
@@ -192,19 +194,26 @@ static void v4l2_get_controls()
             ctrl_mapping[ctrl_last].step          = queryctrl.step;
             ctrl_mapping[ctrl_last].default_value = queryctrl.default_value;
 
-            if (queryctrl.type == V4L2_CTRL_TYPE_MENU) {
-                options_count = queryctrl.maximum - queryctrl.minimum;
+            if (queryctrl.type == V4L2_CTRL_TYPE_MENU || queryctrl.type == V4L2_CTRL_TYPE_INTEGER_MENU) {
+                options_count = queryctrl.maximum - queryctrl.minimum + 1;
                 if (options_count <= 0) {
                     continue;
                 }
                 ctrl_mapping[ctrl_last].options = malloc(options_count * sizeof(struct control_option));
 
-                querymenu.id = id;
-
-                for (querymenu.index = queryctrl.minimum; querymenu.index <= queryctrl.maximum; querymenu.index++) {
+                for (menu_index = queryctrl.minimum; menu_index <= queryctrl.maximum; menu_index++) {
+                    querymenu.id = id;
+                    querymenu.index = menu_index;
                     if (0 == ioctl (v4l2_dev_fd, VIDIOC_QUERYMENU, &querymenu)) {
-                        ctrl_mapping[ctrl_last].options[option_nr].value = querymenu.index;
-                        ctrl_mapping[ctrl_last].options[option_nr].name = strdup((const char *) querymenu.name);
+                        ctrl_mapping[ctrl_last].options[option_nr].index = querymenu.index;
+
+                        if (queryctrl.type == V4L2_CTRL_TYPE_MENU) {
+                            ctrl_mapping[ctrl_last].options[option_nr].name = strdup((const char *) querymenu.name);
+                            
+                        } else {
+                            ctrl_mapping[ctrl_last].options[option_nr].value = querymenu.value;
+                            
+                        }
                         option_nr += 1;
                     }
                 }
@@ -378,11 +387,13 @@ static void menu_item(WINDOW * menu_win, int i, int y, int x)
 
     /* option name */
     if (ctrl_mapping[i].hasoptions) {
-        for (idx = 0; idx < ctrl_mapping[i].maximum - ctrl_mapping[i].minimum; idx++) {
-            if (ctrl_mapping[i].options[idx].name &&
-                ctrl_mapping[i].options[idx].value == ctrl_mapping[i].value
-            ) {
-                mvwprintw(menu_win, y, x, "%46s", ctrl_mapping[i].options[idx].name);
+        for (idx = ctrl_mapping[i].minimum; idx <= ctrl_mapping[i].maximum; idx++) {
+            if (ctrl_mapping[i].options[idx].index == ctrl_mapping[i].value) {
+                if (ctrl_mapping[i].options[idx].name) {
+                    mvwprintw(menu_win, y, x, "%46s", ctrl_mapping[i].options[idx].name);
+                } else {
+                    mvwprintw(menu_win, y, x, "%46d", ctrl_mapping[i].options[idx].value);
+                }
             }
         }
     }
@@ -443,13 +454,17 @@ static void print_control_info(WINDOW * control_win, int cid)
     row++;
     mvwprintw(control_win, row, 2, "Opt: %*s", 18, "");
     if (ctrl_mapping[cid].hasoptions) {
-        for (idx = 0; idx < ctrl_mapping[cid].maximum - ctrl_mapping[cid].minimum; idx++) {
-            if (ctrl_mapping[cid].options[idx].name &&
-                ctrl_mapping[cid].options[idx].value == ctrl_mapping[cid].value
-            ) {
-                mvwprintw(control_win, row, 2, "Opt: %18s",
-                    ctrl_mapping[cid].options[idx].name
-                );
+        for (idx = ctrl_mapping[cid].minimum; idx <= ctrl_mapping[cid].maximum; idx++) {
+            if (ctrl_mapping[cid].options[idx].index == ctrl_mapping[cid].value) {
+                if (ctrl_mapping[cid].options[idx].name) {
+                    mvwprintw(control_win, row, 2, "Opt: %18s",
+                        ctrl_mapping[cid].options[idx].name
+                    );
+                } else {
+                    mvwprintw(control_win, row, 2, "Opt: %18d",
+                        ctrl_mapping[cid].options[idx].value
+                    );
+                }
             }
         }
     }
