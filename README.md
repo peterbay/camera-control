@@ -20,9 +20,11 @@ make
 ```
 Usage: 
 Available options are
- -c file     Path to config file
- -h          Print this help screen and exit
- -v device   V4L2 Video Capture device
+ -c file               Path to config file
+ -h                    Print this help screen and exit
+ -i control_variable   Ignore control with defined variable name\n");
+ -l                    List available controls
+ -v device             V4L2 Video Capture device
 
 # default config file - /boot/camera.txt
 # default v4l2 device - /dev/video0
@@ -31,6 +33,12 @@ Available options are
 ### Run
 ```
 ./camera-ctl
+
+# List control variables
+./camera-ctl -l
+
+# Ignore selected controls by their variable name
+./camera-ctl -i h264_i_frame_period -i h264_profile -i h264_level
 ```
 
 ### User interface

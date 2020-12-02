@@ -72,6 +72,11 @@ struct control_mapping {
     struct control_option * options;
 } control_mapping;
 
+const char * ignored_variables[50];
+int last_ignored_variable = 0;
+
+static bool list_controls = false;
+
 volatile sig_atomic_t terminate = 0;
 static struct control_mapping * ctrl_mapping;
 static int ctrl_last = 0;
@@ -165,11 +170,18 @@ static void v4l2_get_controls()
     unsigned int options_count;
     unsigned int option_nr;
     int menu_index;
+    int liv;
+    char * var_name;
     const unsigned next_fl = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
+    bool ignore;
     memset(&queryctrl, 0, sizeof(queryctrl));
     memset(&querymenu, 0, sizeof (querymenu));
 
     ctrl_mapping = malloc(100 * sizeof(struct control_mapping));
+
+    if (list_controls) {
+        printf("INFO: %30s = %-30s\n", "Control variable name", "Control name");
+    }
 
     queryctrl.id = next_fl;
     while (0 == ioctl (v4l2_dev_fd, VIDIOC_QUERYCTRL, &queryctrl)) {
@@ -177,16 +189,39 @@ static void v4l2_get_controls()
         id = queryctrl.id;
         queryctrl.id |= next_fl;
 
-        if (queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) {
+        if ((queryctrl.flags & V4L2_CTRL_FLAG_DISABLED) ||
+            (queryctrl.flags & V4L2_CTRL_FLAG_INACTIVE) ||
+            (queryctrl.flags & V4L2_CTRL_FLAG_READ_ONLY)
+        ) {
             continue;
         }
 
         control.id = queryctrl.id;
         if (0 == ioctl (v4l2_dev_fd, VIDIOC_G_CTRL, &control)) {
             option_nr = 0;
+            var_name = name2var((char *) queryctrl.name);
+
+            if (list_controls) {
+                printf("INFO: %30s = %-30s\n", var_name, queryctrl.name);
+                continue;
+            }
+
+            if (last_ignored_variable > 0) {
+                ignore = false;
+                for (liv = 0; liv < last_ignored_variable; liv++) {
+                    if (!strncmp(var_name, ignored_variables[liv], strlen(var_name))) {
+                        ignore = true;
+                        continue;
+                    }
+                }
+                if (ignore) {
+                    continue;
+                }
+            }
+
             ctrl_mapping[ctrl_last].id            = id;
             ctrl_mapping[ctrl_last].name          = strdup((const char *) queryctrl.name);
-            ctrl_mapping[ctrl_last].var_name      = name2var((char *) queryctrl.name);
+            ctrl_mapping[ctrl_last].var_name      = var_name;
             ctrl_mapping[ctrl_last].control_type  = queryctrl.type;
             ctrl_mapping[ctrl_last].value         = control.value;
             ctrl_mapping[ctrl_last].minimum       = queryctrl.minimum;
@@ -528,6 +563,10 @@ static int init()
 
     v4l2_get_controls();
 
+    if (list_controls) {
+        goto end;
+    }
+
     initscr();
     clear();
     noecho();
@@ -651,6 +690,7 @@ static int init()
     refresh();
     endwin();
 
+end:
     v4l2_close();
     control_free();
     return 0;
@@ -660,16 +700,18 @@ static void usage(const char * argv0)
 {
     fprintf(stderr, "Usage: %s [options]\n", argv0);
     fprintf(stderr, "Available options are\n");
-    fprintf(stderr, " -c file     Path to config file\n");
-    fprintf(stderr, " -h          Print this help screen and exit\n");
-    fprintf(stderr, " -v device   V4L2 Video Capture device\n");
+    fprintf(stderr, " -c file               Path to config file\n");
+    fprintf(stderr, " -h                    Print this help screen and exit\n");
+    fprintf(stderr, " -i control_variable   Ignore control with defined name\n");
+    fprintf(stderr, " -l                    List available controls\n");
+    fprintf(stderr, " -v device             V4L2 Video Capture device\n");
 }
 
 int main(int argc, char * argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "c:hv:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:hi:lv:")) != -1) {
         switch (opt) {
         case 'c':
             config_file = optarg;
@@ -678,6 +720,18 @@ int main(int argc, char * argv[])
         case 'h':
             usage(argv[0]);
             return 1;
+
+        case 'i':
+            if (last_ignored_variable < 49) {
+                printf("INFO: Ignored control: %s\n", optarg);
+                ignored_variables[last_ignored_variable] = optarg;
+                last_ignored_variable += 1;
+            }
+            break;
+
+        case 'l':
+            list_controls = true;
+            break;
 
         case 'v':
             v4l2_devname = optarg;
