@@ -21,6 +21,7 @@ make
 Usage: 
 Available options are
  -c file               Path to config file
+ -d                    Disable unsupported controls
  -h                    Print this help screen and exit
  -i control_variable   Ignore control with defined variable name\n");
  -l                    List available controls

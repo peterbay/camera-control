@@ -76,12 +76,14 @@ const char * ignored_variables[50];
 int last_ignored_variable = 0;
 
 static bool list_controls = false;
+static bool disable_unsupported_controls = false;
 
 volatile sig_atomic_t terminate = 0;
 static struct control_mapping * ctrl_mapping;
 static int ctrl_last = 0;
 static char * v4l2_devname = "/dev/video0";
 static int v4l2_dev_fd;
+static unsigned int v4l2_dev_pixelformat;
 static char * config_file = "/boot/camera.txt";
 
 void term(int signum)
@@ -161,6 +163,73 @@ static char * name2var(char * name)
     return strdup((const char *) out_name);
 }
 
+static bool v4l2_check_supported_control(int control_id)
+{
+    if (v4l2_dev_pixelformat != V4L2_PIX_FMT_H264 &&
+        v4l2_dev_pixelformat != V4L2_PIX_FMT_H264_NO_SC &&
+        v4l2_dev_pixelformat != V4L2_PIX_FMT_H264_MVC
+    ) {
+        switch (control_id) {
+            case V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY:
+            case V4L2_CID_MPEG_MFC51_VIDEO_DECODER_H264_DISPLAY_DELAY_ENABLE:
+            case V4L2_CID_MPEG_MFC51_VIDEO_H264_ADAPTIVE_RC_ACTIVITY:
+            case V4L2_CID_MPEG_MFC51_VIDEO_H264_ADAPTIVE_RC_DARK:
+            case V4L2_CID_MPEG_MFC51_VIDEO_H264_ADAPTIVE_RC_SMOOTH:
+            case V4L2_CID_MPEG_MFC51_VIDEO_H264_ADAPTIVE_RC_STATIC:
+            case V4L2_CID_MPEG_MFC51_VIDEO_H264_NUM_REF_PIC_FOR_P:
+            case V4L2_CID_MPEG_VIDEO_H264_8X8_TRANSFORM:
+            case V4L2_CID_MPEG_VIDEO_H264_ASO:
+            case V4L2_CID_MPEG_VIDEO_H264_ASO_SLICE_ORDER:
+            case V4L2_CID_MPEG_VIDEO_H264_B_FRAME_QP:
+            case V4L2_CID_MPEG_VIDEO_H264_CPB_SIZE:
+            case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO_CHANGE_DIRECTION:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO_CHANGE_RATE:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO_MAP_TYPE:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO_RUN_LENGTH:
+            case V4L2_CID_MPEG_VIDEO_H264_FMO_SLICE_GROUP:
+            case V4L2_CID_MPEG_VIDEO_H264_HIERARCHICAL_CODING:
+            case V4L2_CID_MPEG_VIDEO_H264_HIERARCHICAL_CODING_LAYER:
+            case V4L2_CID_MPEG_VIDEO_H264_HIERARCHICAL_CODING_LAYER_QP:
+            case V4L2_CID_MPEG_VIDEO_H264_HIERARCHICAL_CODING_TYPE:
+            case V4L2_CID_MPEG_VIDEO_H264_I_PERIOD:
+            case V4L2_CID_MPEG_VIDEO_H264_LEVEL:
+            case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_ALPHA:
+            case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_BETA:
+            case V4L2_CID_MPEG_VIDEO_H264_LOOP_FILTER_MODE:
+            case V4L2_CID_MPEG_VIDEO_H264_MAX_QP:
+            case V4L2_CID_MPEG_VIDEO_H264_MIN_QP:
+            case V4L2_CID_MPEG_VIDEO_H264_PROFILE:
+            case V4L2_CID_MPEG_VIDEO_H264_SEI_FP_ARRANGEMENT_TYPE:
+            case V4L2_CID_MPEG_VIDEO_H264_SEI_FP_CURRENT_FRAME_0:
+            case V4L2_CID_MPEG_VIDEO_H264_SEI_FRAME_PACKING:
+            case V4L2_CID_MPEG_VIDEO_H264_VUI_EXT_SAR_HEIGHT:
+            case V4L2_CID_MPEG_VIDEO_H264_VUI_EXT_SAR_WIDTH:
+            case V4L2_CID_MPEG_VIDEO_H264_VUI_SAR_ENABLE:
+            case V4L2_CID_MPEG_VIDEO_H264_VUI_SAR_IDC:
+                return false;
+        default:
+            break;
+        }
+    }
+
+    if (v4l2_dev_pixelformat != V4L2_PIX_FMT_MPEG4) {
+        switch (control_id) {
+            case V4L2_CID_MPEG_VIDEO_MPEG4_LEVEL:
+            case V4L2_CID_MPEG_VIDEO_MPEG4_PROFILE:
+            case V4L2_CID_MPEG_VIDEO_MPEG4_QPEL:
+            case V4L2_CID_MPEG_VIDEO_MPEG4_I_FRAME_QP:
+            case V4L2_CID_MPEG_VIDEO_MPEG4_P_FRAME_QP:
+            case V4L2_CID_MPEG_VIDEO_MPEG4_B_FRAME_QP:
+                return false;
+        default:
+            break;
+        }
+    }
+    return true;
+}
+
 static void v4l2_get_controls()
 {
     struct v4l2_queryctrl queryctrl;
@@ -194,6 +263,13 @@ static void v4l2_get_controls()
             (queryctrl.flags & V4L2_CTRL_FLAG_READ_ONLY)
         ) {
             continue;
+        }
+
+        if (disable_unsupported_controls) {
+            if (!v4l2_check_supported_control(id)) {
+                printf("INFO: Ignore unsupported control: %s\n", queryctrl.name);
+                continue;
+            }
         }
 
         control.id = queryctrl.id;
@@ -539,6 +615,8 @@ static void print_format_info()
     if (ioctl(v4l2_dev_fd, VIDIOC_G_FMT, &fmt) < 0) {
         return;
     }
+    v4l2_dev_pixelformat = fmt.fmt.pix.pixelformat;
+
     mvprintw(1, 1, "V4L2:       %s", v4l2_devname);
     mvprintw(2, 1, "Format:     %c%c%c%c", pixfmtstr(fmt.fmt.pix.pixelformat));
     mvprintw(3, 1, "Resolution: %dx%d", fmt.fmt.pix.width, fmt.fmt.pix.height);
@@ -701,6 +779,7 @@ static void usage(const char * argv0)
     fprintf(stderr, "Usage: %s [options]\n", argv0);
     fprintf(stderr, "Available options are\n");
     fprintf(stderr, " -c file               Path to config file\n");
+    fprintf(stderr, " -d                    Disable unsupported controls\n");
     fprintf(stderr, " -h                    Print this help screen and exit\n");
     fprintf(stderr, " -i control_variable   Ignore control with defined name\n");
     fprintf(stderr, " -l                    List available controls\n");
@@ -711,10 +790,14 @@ int main(int argc, char * argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "c:hi:lv:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:dhi:lv:")) != -1) {
         switch (opt) {
         case 'c':
             config_file = optarg;
+            break;
+
+        case 'd':
+            disable_unsupported_controls = true;
             break;
 
         case 'h':
