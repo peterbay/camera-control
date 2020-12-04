@@ -1,5 +1,7 @@
 # camera-control
 
+![camera-control](camera-control.png)
+
 ## Info
 Simple command-line application for controlling camera settings.
 
