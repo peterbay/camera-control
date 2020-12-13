@@ -523,6 +523,7 @@ static void print_menu(WINDOW * menu_win, int highlight)
     int y = 1;
     int max;
     int offset = 0;
+    int btitle_offset = 0;
     int window_lines = WINDOW_HEIGHT - 2;
 
     if (highlight > window_lines - 1) {
@@ -542,6 +543,15 @@ static void print_menu(WINDOW * menu_win, int highlight)
         }
         y++;
     }
+
+    btitle_offset = WINDOW_WIDTH - 9;
+    btitle_offset -= (highlight + 1 < 10) ? 1 : ((highlight + 1 < 100) ? 2 : 3);
+    btitle_offset -= (ctrl_last < 10) ? 1 : ((ctrl_last < 100) ? 2 : 3);
+
+    mvwhline(menu_win, 0, 1, ACS_HLINE, WINDOW_WIDTH - 2);
+    wmove(menu_win, WINDOW_HEIGHT - 1, btitle_offset);
+    wprintw(menu_win, "[ %d / %d ]", highlight + 1, ctrl_last);
+
     wrefresh(menu_win);
 }
 
@@ -645,6 +655,7 @@ static int init()
         goto end;
     }
 
+    curs_set(0);
     initscr();
     clear();
     noecho();
@@ -663,6 +674,7 @@ static int init()
 
     print_menu(menu_win, highlight);
     print_control_info(control_win, highlight);
+    curs_set(0);
 
     while(!quit)
     {
@@ -678,7 +690,7 @@ static int init()
                 break;
 
             case KEY_DOWN:
-                if (highlight < ctrl_last - 2) {
+                if (highlight < ctrl_last - 1) {
                     highlight += 1;    
                 }
                 print_control_info(control_win, highlight);
@@ -759,11 +771,13 @@ static int init()
                 }
                 break;
         }
+        curs_set(0);
         print_menu(menu_win, highlight);
         if (changed) {
             print_control_info(control_win, highlight);
         }
-    }	
+    }
+    curs_set(1);
     clrtoeol();
     refresh();
     endwin();
