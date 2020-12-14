@@ -85,6 +85,8 @@ static char * v4l2_devname = "/dev/video0";
 static int v4l2_dev_fd;
 static unsigned int v4l2_dev_pixelformat;
 static char * config_file = "/boot/camera.txt";
+static int highlight = 0;
+static int last_offset = 0;
 
 void term(int signum)
 {
@@ -527,8 +529,25 @@ static void print_menu(WINDOW * menu_win, int highlight)
     int window_lines = WINDOW_HEIGHT - 2;
 
     if (highlight > window_lines - 1) {
-        offset = highlight - window_lines + 1;
+        if (highlight >= last_offset && highlight < last_offset + window_lines) {
+            offset = last_offset;
+
+        } else {
+            offset = highlight - window_lines + 1;
+
+        }
+
+    } else if (last_offset > 0) {
+        if (highlight > last_offset) {
+            offset = last_offset;
+
+        } else {
+            offset = highlight;
+
+        }
+
     }
+    last_offset = offset;
 
     max = (ctrl_last >= offset + window_lines) ? offset + window_lines : ctrl_last;
 
@@ -638,7 +657,6 @@ static int init()
 {
     WINDOW * menu_win;
     WINDOW * control_win;
-    int highlight = 0;
     bool quit = false;
     int c;
     int ret;
