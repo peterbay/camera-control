@@ -27,6 +27,7 @@ Available options are
  -h                    Print this help screen and exit
  -i control_variable   Ignore control with defined variable name\n");
  -l                    List available controls
+ -p file               Load camera preset file
  -v device             V4L2 Video Capture device
 
 # default config file - /boot/camera.txt

@@ -85,6 +85,7 @@ static char * v4l2_devname = "/dev/video0";
 static int v4l2_dev_fd;
 static unsigned int v4l2_dev_pixelformat;
 static char * config_file = "/boot/camera.txt";
+char * preset_file = NULL;
 static int highlight = 0;
 static int last_offset = 0;
 
@@ -431,12 +432,12 @@ static void control_free()
     }
 }
 
-static void control_load()
+static void control_load(char * control_file)
 {
     char name[30];
     int value;
     int i;
-    FILE * fp = fopen(config_file, "r");
+    FILE * fp = fopen(control_file, "r");
     
     if (fp != NULL) {
         // Assume control=value file format
@@ -451,10 +452,10 @@ static void control_load()
                 }
             }
         }
-        mvprintw(0, 20, "Config file %s loaded", config_file);
+        mvprintw(0, 20, "Config file %s loaded", control_file);
         fclose(fp);
     } else {
-        mvprintw(0, 20, "Cannot load %s", config_file);
+        mvprintw(0, 20, "Cannot load %s", control_file);
     }
     refresh();
 }
@@ -673,6 +674,10 @@ static int init()
         goto end;
     }
 
+    if (preset_file != NULL) {
+      control_load(preset_file);
+    }
+
     curs_set(0);
     initscr();
     clear();
@@ -765,7 +770,7 @@ static int init()
             case 'l':
                 mvprintw(0, 20, "%*s", 58, " ");
                 if (!DEBUG) {
-                    control_load();
+                    control_load(config_file);
                 }
                 break;
 
@@ -815,6 +820,7 @@ static void usage(const char * argv0)
     fprintf(stderr, " -h                    Print this help screen and exit\n");
     fprintf(stderr, " -i control_variable   Ignore control with defined name\n");
     fprintf(stderr, " -l                    List available controls\n");
+    fprintf(stderr, " -p file               Load camera preset file\n");
     fprintf(stderr, " -v device             V4L2 Video Capture device\n");
 }
 
@@ -822,7 +828,7 @@ int main(int argc, char * argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "c:dhi:lv:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:dhi:lp:v:")) != -1) {
         switch (opt) {
         case 'c':
             config_file = optarg;
@@ -846,6 +852,10 @@ int main(int argc, char * argv[])
 
         case 'l':
             list_controls = true;
+            break;
+
+        case 'p':
+            preset_file = optarg;
             break;
 
         case 'v':
