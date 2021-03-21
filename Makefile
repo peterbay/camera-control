@@ -2,7 +2,7 @@
 PKGS       := ncursesw
 CC         := gcc
 PKG_CONFIG ?= pkg-config
-CFLAGS     := -Wall -O2 -std=c99 $(shell $(PKG_CONFIG) --cflags $(PKGS))
+CFLAGS     := -W -Wall -g -O3 $(shell $(PKG_CONFIG) --cflags $(PKGS))
 LDFLAGS    := $(shell $(PKG_CONFIG) --libs $(PKGS))
 AS         := as
 ASFLAGS    := -gdbb --32
