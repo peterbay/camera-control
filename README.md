@@ -25,8 +25,9 @@ Available options are
  -c file               Path to config file
  -d                    Disable unsupported controls
  -h                    Print this help screen and exit
- -i control_variable   Ignore control with defined variable name\n");
+ -i control_variable   Ignore control with defined variable name
  -l                    List available controls
+ -p path               Path to directory with preset files
  -v device             V4L2 Video Capture device
 
 # default config file - /boot/camera.txt
@@ -42,6 +43,21 @@ Available options are
 
 # Ignore selected controls by their variable name
 ./camera-ctl -i h264_i_frame_period -i h264_profile -i h264_level
+
+```
+
+### Using preset files
+Loading of settings from presets files. Preset file name must start with number between 1 and 9.
+Example:
+/path/presets/1-day
+/path/presets/2-night
+/path/presets/3-fluorescent-lamp
+etc.
+
+Switching between presets is performed via the keyboard keys from 1 to 9 and <tab> key.
+
+```
+./camera-ctl -p /path/presets
 ```
 
 ### User interface
@@ -62,4 +78,14 @@ Available options are
 |L|Load settings from config file|
 |S|Save settings to config file|
 |Q|Quit application|
-
+|U|Get actual values from a video device|
+|1|Load preset file 1|
+|2|Load preset file 2|
+|3|Load preset file 3|
+|4|Load preset file 4|
+|5|Load preset file 5|
+|6|Load preset file 6|
+|7|Load preset file 7|
+|8|Load preset file 8|
+|9|Load preset file 9|
+|Tab|Switch between preset files|
