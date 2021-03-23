@@ -22,6 +22,7 @@ make
 ```
 Usage: 
 Available options are
+ -a                    Load preset files in alphabetical order
  -c file               Path to config file
  -d                    Disable unsupported controls
  -h                    Print this help screen and exit

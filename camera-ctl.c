@@ -113,6 +113,7 @@ static struct preset presets[10] = {
     {NULL, NULL},
 };
 static int last_preset_loaded = -1;
+static bool preset_alpabetically = false;
 struct window_dimensions
 {
     int top;
@@ -120,6 +121,7 @@ struct window_dimensions
     int cols;
     int rows;
 };
+static int alpha_index = 0;
 
 struct window_dimensions top_dim = {0, 0, 0, 0};
 struct window_dimensions menu_dim = {0, 0, 0, 0};
@@ -514,7 +516,16 @@ static int presets_read(const char *fpath,
             file++;
         }
 
-        if (file[0] > 48 && file[0] < 58)
+        if (preset_alpabetically)
+        {
+            if (alpha_index < 9) {
+                presets[alpha_index].path = strdup((const char *)fpath);
+                presets[alpha_index].name = strdup((const char *)file);
+                printf("%d %s\n", alpha_index, presets[alpha_index].name);
+                alpha_index++;
+            }
+        }
+        else if (file[0] > 48 && file[0] < 58)
         {
             index = (int)file[0] - 49;
             presets[index].path = strdup((const char *)fpath);
@@ -530,11 +541,34 @@ static int presets_read(const char *fpath,
     return 0;
 }
 
+static int sort_presets(const void *v1, const void *v2)
+{
+    const struct preset *p1 = (struct preset *)v1;
+    const struct preset *p2 = (struct preset *)v2;
+    int rc = strcmp(p1->name, p2->name);
+    if (rc < 0)
+    {
+        return -1;
+    }
+    else if (rc > 0)
+    {
+        return +1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
 static void get_preset_files()
 {
     if (presets_path)
     {
         ftw(presets_path, presets_read, 20);
+        if (preset_alpabetically && alpha_index > 0)
+        {
+            qsort(presets, alpha_index, sizeof(struct preset), sort_presets);
+        }
     }
 }
 
@@ -1186,6 +1220,7 @@ static void usage(const char *argv0)
 {
     fprintf(stderr, "Usage: %s [options]\n", argv0);
     fprintf(stderr, "Available options are\n");
+    fprintf(stderr, " -a                    Load preset files in alphabetical order\n");
     fprintf(stderr, " -c file               Path to config file\n");
     fprintf(stderr, " -d                    Disable unsupported controls\n");
     fprintf(stderr, " -h                    Print this help screen and exit\n");
@@ -1199,10 +1234,14 @@ int main(int argc, char *argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "c:dhi:lp:v:")) != -1)
+    while ((opt = getopt(argc, argv, "ac:dhi:lp:v:")) != -1)
     {
         switch (opt)
         {
+        case 'a':
+            preset_alpabetically = true;
+            break;
+
         case 'c':
             config_file = optarg;
             break;
