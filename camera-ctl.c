@@ -31,6 +31,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <ftw.h>
 #include <termios.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -92,6 +93,28 @@ static int ctrl_last = 0;
 static int v4l2_dev_fd;
 static bool ui_initialized = false;
 static int active_control = 0;
+
+struct preset
+{
+    char *path;
+    char *name;
+};
+static char *presets_path = NULL;
+static struct preset presets[10] = {
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+    {NULL, NULL},
+};
+static int last_preset_loaded = -1;
+static bool preset_alpabetically = false;
+static int alpha_index = 0;
 
 struct window_dimensions
 {
@@ -411,12 +434,14 @@ static void control_free()
     }
 }
 
-static void control_load()
+static void control_load(const char *title, const char *filename)
 {
     char name[30];
     int value;
     int i;
-    FILE *fp = fopen(config_file, "r");
+    FILE *fp = fopen(filename, "r");
+
+    mvprintw(0, 20, "%*s", 60, " ");
 
     if (fp != NULL)
     {
@@ -436,22 +461,23 @@ static void control_load()
                 }
             }
         }
-        mvprintw(0, 20, "Config file %s loaded", config_file);
+        mvprintw(0, 20, "%s file %s loaded", title, filename);
         fclose(fp);
     }
     else
     {
-        mvprintw(0, 20, "Cannot load %s", config_file);
+        mvprintw(0, 20, "Cannot load %s", filename);
     }
     refresh();
 }
 
-static void control_save()
+static void control_save(const char *title, const char *filename)
 {
     int value;
     // Overwrite existing file
-    FILE *fp = fopen(config_file, "w");
+    FILE *fp = fopen(filename, "w");
 
+    mvprintw(0, 20, "%*s", 60, " ");
     if (fp != NULL)
     {
         for (int i = 0; i < ctrl_last; i++)
@@ -464,13 +490,135 @@ static void control_save()
             }
         }
         fclose(fp);
-        mvprintw(0, 20, "Config file %s saved", config_file);
+        mvprintw(0, 20, "%s file %s saved", title, filename);
     }
     else
     {
-        mvprintw(0, 20, "Cannot save %s", config_file);
+        mvprintw(0, 20, "Cannot save %s", filename);
     }
     refresh();
+}
+
+static int presets_read(const char *fpath,
+                        const struct stat *sb,
+                        int tflag)
+{
+    char *file = NULL;
+    int index = 0;
+
+    (void)(tflag); /* avoid warning: unused parameter 'tflag' */
+
+    if (!S_ISDIR(sb->st_mode))
+    {
+        file = (char *)(fpath + strlen(presets_path));
+
+        if (file[0] == '/')
+        {
+            file++;
+        }
+
+        if (preset_alpabetically)
+        {
+            if (alpha_index < 9) {
+                presets[alpha_index].path = strdup((const char *)fpath);
+                presets[alpha_index].name = strdup((const char *)file);
+                printf("%d %s\n", alpha_index, presets[alpha_index].name);
+                alpha_index++;
+            }
+        }
+        else if (file[0] > 48 && file[0] < 58)
+        {
+            index = (int)file[0] - 49;
+            presets[index].path = strdup((const char *)fpath);
+            file++;
+
+            while (!isalnum((int)file[0]))
+            {
+                file++;
+            }
+            presets[index].name = strdup((const char *)file);
+        }
+    }
+    return 0;
+}
+
+static int sort_presets(const void *v1, const void *v2)
+{
+    const struct preset *p1 = (struct preset *)v1;
+    const struct preset *p2 = (struct preset *)v2;
+    int rc = strcmp(p1->name, p2->name);
+    if (rc < 0)
+    {
+        return -1;
+    }
+    else if (rc > 0)
+    {
+        return +1;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+static void get_preset_files()
+{
+    if (presets_path)
+    {
+        ftw(presets_path, presets_read, 20);
+        if (preset_alpabetically && alpha_index > 0)
+        {
+            qsort(presets, alpha_index, sizeof(struct preset), sort_presets);
+        }
+    }
+}
+
+static void load_preset(int index)
+{
+    if (index >= 0 && index < 9)
+    {
+        if (presets[index].path)
+        {
+            control_load("Preset", presets[index].path);
+            last_preset_loaded = index;
+        }
+    }
+}
+
+static void load_next_preset()
+{
+    int i;
+
+    if (last_preset_loaded < 0)
+    {
+        for (i = 0; i < 9; i++)
+        {
+            if (presets[i].path)
+            {
+                load_preset(i);
+                return;
+            }
+        }
+    }
+    else
+    {
+        for (i = last_preset_loaded + 1; i < 9; i++)
+        {
+            if (presets[i].path)
+            {
+                load_preset(i);
+                return;
+            }
+        }
+        for (i = 0; i < last_preset_loaded; i++)
+        {
+            if (presets[i].path)
+            {
+                load_preset(i);
+                return;
+            }
+        }
+    }
 }
 
 static void menu_item(int cid, int y, int x)
@@ -540,6 +688,10 @@ static void ui_uninit()
 
 static void draw_top()
 {
+    int i;
+    int row = 2;
+    int col = 37;
+
     wclear(top_win);
     mvwin(top_win, top_dim.top, top_dim.left);
     wresize(top_win, top_dim.rows, top_dim.cols);
@@ -549,7 +701,25 @@ static void draw_top()
     mvprintw(2, 1, "Format:     %c%c%c%c", pixfmtstr(v4l2_dev_pixelformat));
     mvprintw(3, 1, "Resolution: %dx%d", v4l2_dev_width, v4l2_dev_height);
 
-    mvprintw(1, 30, "Config: %s", config_file);
+    mvprintw(1, 28, "Config: %s", config_file);
+    mvprintw(2, 28, "Presets:");
+
+    for (i = 0; i < 10; i++)
+    {
+        if (presets[i].name)
+        {
+            if (col + (int)strlen(presets[i].name) + 5 > (int)top_dim.cols)
+            {
+                row++;
+                col = 37;
+            }
+            if (row < 4)
+            {
+                mvprintw(row, col, "[%d] %s", i + 1, presets[i].name);
+                col += (int)strlen(presets[i].name) + 5;
+            }
+        }
+    }
 
     wnoutrefresh(top_win);
 }
@@ -698,7 +868,7 @@ static void draw_help()
     int col = help_dim.left;
     int i;
 
-    for (i = row; i < row + 10; i++)
+    for (i = row; i < row + 11; i++)
     {
         mvprintw(i, col - 1, " ");
     }
@@ -711,12 +881,13 @@ static void draw_help()
     mvprintw(row++, col, "Up/Down/Home/End  Navigate");
     mvprintw(row++, col, "Left/Right          Adjust");
     mvprintw(row++, col, "PgDn/PgUp      Jump Adjust");
-    mvprintw(row++, col, "R Reset All");
+    mvprintw(row++, col, "1-9       Load preset file");
+    mvprintw(row++, col, "Tab     Switch preset file");
+    mvprintw(row++, col, "                          ");
+    mvprintw(row++, col, "R Reset All  | U Update   ");
     mvprintw(row++, col, "D Default");
-    mvprintw(row++, col, "N Minimum");
-    mvprintw(row++, col, "M Maximum");
-    mvprintw(row++, col, "L Load");
-    mvprintw(row++, col, "S Save");
+    mvprintw(row++, col, "N Minimum    | M Maximum  ");
+    mvprintw(row++, col, "L Load       | S Save     ");
     mvprintw(row++, col, "Q Quit");
 
     wnoutrefresh(help_win);
@@ -775,6 +946,23 @@ static void draw_ui(int row, int col)
     doupdate();
 }
 
+static void update_controls()
+{
+    struct v4l2_control control;
+    int i;
+
+    memset(&control, 0, sizeof(struct v4l2_control));
+
+    for (i = 0; i < ctrl_last; i++)
+    {
+        control.id = ctrl_mapping[i].id;
+        if (ioctl(v4l2_dev_fd, VIDIOC_G_CTRL, &control) == 0)
+        {
+            ctrl_mapping[i].value = control.value;
+        }
+    }
+}
+
 static void win_watch(int sigNo)
 {
     struct winsize termSize;
@@ -828,6 +1016,8 @@ static int init()
     {
         goto end;
     }
+
+    get_preset_files();
 
     if (isatty(STDIN_FILENO) &&
         ioctl(STDIN_FILENO, TIOCGWINSZ, (char *)&termSize) >= 0)
@@ -886,6 +1076,56 @@ static int init()
             active_control = ctrl_last - 1;
             break;
 
+        case '1':
+            load_preset(0);
+            redraw = true;
+            break;
+
+        case '2':
+            load_preset(1);
+            redraw = true;
+            break;
+
+        case '3':
+            load_preset(2);
+            redraw = true;
+            break;
+
+        case '4':
+            load_preset(3);
+            redraw = true;
+            break;
+
+        case '5':
+            load_preset(4);
+            redraw = true;
+            break;
+
+        case '6':
+            load_preset(5);
+            redraw = true;
+            break;
+
+        case '7':
+            load_preset(6);
+            redraw = true;
+            break;
+
+        case '8':
+            load_preset(7);
+            redraw = true;
+            break;
+
+        case '9':
+            load_preset(8);
+            redraw = true;
+            break;
+
+        case 9:
+            load_next_preset();
+            redraw = true;
+            break;
+
         case 'N':
         case 'n':
             cm->value = cm->minimum;
@@ -916,7 +1156,8 @@ static int init()
             mvprintw(0, 20, "%*s", 58, " ");
             if (!DEBUG)
             {
-                control_load();
+                control_load("Config", config_file);
+                redraw = true;
             }
             break;
 
@@ -925,7 +1166,7 @@ static int init()
             mvprintw(0, 20, "%*s", 58, " ");
             if (!DEBUG)
             {
-                control_save();
+                control_save("Config", config_file);
             }
             break;
 
@@ -934,10 +1175,16 @@ static int init()
             quit = true;
             break;
 
+        case 'U':
+        case 'u':
+            update_controls();
+            redraw = true;
+            break;
+
         default:
             if (DEBUG)
             {
-                mvprintw(24, 0, "Character %3d '%c'", c, c);
+                mvprintw(0, 0, "Character %3d '%c'", c, c);
                 refresh();
             }
             break;
@@ -976,11 +1223,13 @@ static void usage(const char *argv0)
 {
     fprintf(stderr, "Usage: %s [options]\n", argv0);
     fprintf(stderr, "Available options are\n");
+    fprintf(stderr, " -a                    Load preset files in alphabetical order\n");
     fprintf(stderr, " -c file               Path to config file\n");
     fprintf(stderr, " -d                    Disable unsupported controls\n");
     fprintf(stderr, " -h                    Print this help screen and exit\n");
     fprintf(stderr, " -i control_variable   Ignore control with defined name\n");
     fprintf(stderr, " -l                    List available controls\n");
+    fprintf(stderr, " -p path               Path to directory with preset files\n");
     fprintf(stderr, " -v device             V4L2 Video Capture device\n");
 }
 
@@ -988,10 +1237,14 @@ int main(int argc, char *argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "c:dhi:lv:")) != -1)
+    while ((opt = getopt(argc, argv, "ac:dhi:lp:v:")) != -1)
     {
         switch (opt)
         {
+        case 'a':
+            preset_alpabetically = true;
+            break;
+
         case 'c':
             config_file = optarg;
             break;
@@ -1015,6 +1268,10 @@ int main(int argc, char *argv[])
 
         case 'l':
             list_controls = true;
+            break;
+
+        case 'p':
+            presets_path = optarg;
             break;
 
         case 'v':
