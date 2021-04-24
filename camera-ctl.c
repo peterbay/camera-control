@@ -60,8 +60,15 @@ struct control_option
     char *name;
 } control_option;
 
+enum control_entry_type
+{
+    V4L2_CONTROL,
+    V4L2_PARAM,
+};
+
 struct control_mapping
 {
+    int entry_type;
     unsigned int id;
     char *name;
     char *var_name;
@@ -93,6 +100,7 @@ static int ctrl_last = 0;
 static int v4l2_dev_fd;
 static bool ui_initialized = false;
 static int active_control = 0;
+static int fps_max = 30;
 
 struct preset
 {
@@ -177,6 +185,75 @@ static void v4l2_close()
     }
 }
 
+static int v4l2_fps_get()
+{
+    static struct v4l2_streamparm parm;
+    struct v4l2_fract *tf;
+    memset(&parm, 0, sizeof(parm));
+
+    parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+
+    if (ioctl(v4l2_dev_fd, VIDIOC_G_PARM, &parm) == 0)
+    {
+        tf = &parm.parm.capture.timeperframe;
+
+        if (!tf->denominator || !tf->numerator)
+        {
+            return 0;
+        }
+        else
+        {
+            return (int)(1.0 * tf->denominator / tf->numerator);
+        }
+    }
+    return 0;
+}
+
+static int v4l2_fps_set(int fps)
+{
+    static struct v4l2_streamparm parm;
+    struct v4l2_fract *tf;
+    memset(&parm, 0, sizeof(parm));
+
+    parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    parm.parm.capture.timeperframe.numerator = 1000;
+    parm.parm.capture.timeperframe.denominator =
+        (uint32_t)(fps * parm.parm.capture.timeperframe.numerator);
+
+    if (ioctl(v4l2_dev_fd, VIDIOC_S_PARM, &parm) == 0)
+    {
+        tf = &parm.parm.capture.timeperframe;
+
+        if (!tf->denominator || !tf->numerator)
+        {
+            return 0;
+        }
+        else
+        {
+            return (int)(1.0 * tf->denominator / tf->numerator);
+        }
+    }
+    return 0;
+}
+
+static void v4l2_init_fps()
+{
+    int fps = v4l2_fps_get();
+
+    ctrl_mapping[ctrl_last].entry_type = V4L2_PARAM;
+    ctrl_mapping[ctrl_last].id = 0;
+    ctrl_mapping[ctrl_last].name = "FPS";
+    ctrl_mapping[ctrl_last].var_name = "fps";
+    ctrl_mapping[ctrl_last].control_type = 0;
+    ctrl_mapping[ctrl_last].value = fps;
+    ctrl_mapping[ctrl_last].minimum = 1;
+    ctrl_mapping[ctrl_last].maximum = fps_max;
+    ctrl_mapping[ctrl_last].step = 1;
+    ctrl_mapping[ctrl_last].default_value = 30;
+    ctrl_last++;
+
+}
+
 static int v4l2_set_ctrl_value(int id, int value)
 {
     struct v4l2_control control;
@@ -186,6 +263,26 @@ static int v4l2_set_ctrl_value(int id, int value)
     control.value = value;
 
     return ioctl(v4l2_dev_fd, VIDIOC_S_CTRL, &control);
+}
+
+static void v4l2_apply_control(struct control_mapping *mapping)
+{
+    switch (mapping->entry_type)
+    {
+    case V4L2_CONTROL:
+        v4l2_set_ctrl_value(mapping->id, mapping->value);
+        break;
+
+    case V4L2_PARAM:
+        if (!strncmp(mapping->var_name, "fps", 3))
+        {
+            mapping->value = v4l2_fps_set(mapping->value);
+        }
+        break;
+
+    default:
+        break;
+    }
 }
 
 static char *name2var(char *name)
@@ -361,6 +458,7 @@ static void v4l2_get_controls()
                 }
             }
 
+            ctrl_mapping[ctrl_last].entry_type = V4L2_CONTROL;
             ctrl_mapping[ctrl_last].id = id;
             ctrl_mapping[ctrl_last].name = strdup((const char *)queryctrl.name);
             ctrl_mapping[ctrl_last].var_name = var_name;
@@ -416,20 +514,23 @@ static void control_free()
 
     for (i = 0; i < ctrl_last; i++)
     {
-        if (ctrl_mapping[i].name)
+        if (ctrl_mapping[i].entry_type == V4L2_CONTROL)
         {
-            free(ctrl_mapping[i].name);
-            ctrl_mapping[i].name = NULL;
-        }
-        if (ctrl_mapping[i].var_name)
-        {
-            free(ctrl_mapping[i].var_name);
-            ctrl_mapping[i].var_name = NULL;
-        }
-        if (ctrl_mapping[i].hasoptions && ctrl_mapping[i].options)
-        {
-            free(ctrl_mapping[i].options);
-            ctrl_mapping[i].options = NULL;
+            if (ctrl_mapping[i].name)
+            {
+                free(ctrl_mapping[i].name);
+                ctrl_mapping[i].name = NULL;
+            }
+            if (ctrl_mapping[i].var_name)
+            {
+                free(ctrl_mapping[i].var_name);
+                ctrl_mapping[i].var_name = NULL;
+            }
+            if (ctrl_mapping[i].hasoptions && ctrl_mapping[i].options)
+            {
+                free(ctrl_mapping[i].options);
+                ctrl_mapping[i].options = NULL;
+            }
         }
     }
 }
@@ -455,7 +556,7 @@ static void control_load(const char *title, const char *filename)
                     if (ctrl_mapping[i].value != value)
                     {
                         ctrl_mapping[i].value = value;
-                        v4l2_set_ctrl_value(ctrl_mapping[i].id, ctrl_mapping[i].value);
+                        v4l2_apply_control(&ctrl_mapping[i]);
                     };
                     break;
                 }
@@ -519,7 +620,8 @@ static int presets_read(const char *fpath,
 
         if (preset_alpabetically)
         {
-            if (alpha_index < 9) {
+            if (alpha_index < 9)
+            {
                 presets[alpha_index].path = strdup((const char *)fpath);
                 presets[alpha_index].name = strdup((const char *)file);
                 printf("%d %s\n", alpha_index, presets[alpha_index].name);
@@ -1011,6 +1113,7 @@ static int init()
     v4l2_format_info();
 
     v4l2_get_controls();
+    v4l2_init_fps();
 
     if (list_controls)
     {
@@ -1146,7 +1249,7 @@ static int init()
             for (i = 0; i < ctrl_last; i++)
             {
                 ctrl_mapping[i].value = ctrl_mapping[i].default_value;
-                v4l2_set_ctrl_value(ctrl_mapping[i].id, ctrl_mapping[i].value);
+                v4l2_apply_control(&ctrl_mapping[i]);
             }
             redraw = true;
             break;
@@ -1195,7 +1298,7 @@ static int init()
 
         if (prev_value != cm->value)
         {
-            v4l2_set_ctrl_value(cm->id, cm->value);
+            v4l2_apply_control(cm);
             redraw = true;
         }
 
@@ -1226,6 +1329,7 @@ static void usage(const char *argv0)
     fprintf(stderr, " -a                    Load preset files in alphabetical order\n");
     fprintf(stderr, " -c file               Path to config file\n");
     fprintf(stderr, " -d                    Disable unsupported controls\n");
+    fprintf(stderr, " -f fps                Maximum FPS value (b/w 1 and 120, default: 30)\n");
     fprintf(stderr, " -h                    Print this help screen and exit\n");
     fprintf(stderr, " -i control_variable   Ignore control with defined name\n");
     fprintf(stderr, " -l                    List available controls\n");
@@ -1237,7 +1341,7 @@ int main(int argc, char *argv[])
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "ac:dhi:lp:v:")) != -1)
+    while ((opt = getopt(argc, argv, "ac:df:hi:lp:v:")) != -1)
     {
         switch (opt)
         {
@@ -1251,6 +1355,18 @@ int main(int argc, char *argv[])
 
         case 'd':
             disable_unsupported_controls = true;
+            break;
+
+        case 'f':
+            if (atoi(optarg) > 0 && atoi(optarg) < 121)
+            {
+                fps_max = atoi(optarg);
+            }
+            else
+            {
+                printf("ERROR: Invalid maximum fps '%s'\n", optarg);
+                return 1;
+            }
             break;
 
         case 'h':

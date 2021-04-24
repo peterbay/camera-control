@@ -25,6 +25,7 @@ Available options are
  -a                    Load preset files in alphabetical order
  -c file               Path to config file
  -d                    Disable unsupported controls
+ -f fps                Maximum FPS value (b/w 1 and 120, default: 30)
  -h                    Print this help screen and exit
  -i control_variable   Ignore control with defined variable name
  -l                    List available controls
